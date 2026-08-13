@@ -1,0 +1,35 @@
+name: Matcha stock check
+
+on:
+  schedule:
+    # Times are UTC. 00:30 UTC = 09:30 JST, 06:30 UTC = 15:30 JST
+    - cron: "30 0 * * *"
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "TEST: send a fake alert to verify push + email delivery"
+        type: boolean
+        default: false
+      canary:
+        description: "CANARY: real check, alert on ANY size (incl. 30g) to test live detection"
+        type: boolean
+        default: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Check stock
+        env:
+          FORCE_TEST: ${{ inputs.test == true && '1' || '0' }}
+          FORCE_CANARY: ${{ inputs.canary == true && '1' || '0' }}
+        run: python check_stock.py
+        # Exit code 1 = IN STOCK (or test alert). The script already sent
+        # the push + email via ntfy. The workflow then "fails" on purpose,
+        # so GitHub also emails your account address as a backup.
