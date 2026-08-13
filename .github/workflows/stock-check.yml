@@ -16,6 +16,10 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -25,11 +29,29 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: Check stock
+
+      - name: Check stock (sends ntfy push directly)
+        id: stock
+        continue-on-error: true
         env:
           FORCE_TEST: ${{ inputs.test == true && '1' || '0' }}
           FORCE_CANARY: ${{ inputs.canary == true && '1' || '0' }}
         run: python check_stock.py
-        # Exit code 1 = IN STOCK (or test alert). The script already sent
-        # the push + email via ntfy. The workflow then "fails" on purpose,
-        # so GitHub also emails your account address as a backup.
+
+      - name: Email alert via GitHub issue (contains buy links)
+        if: steps.stock.outputs.in_stock == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: ${{ toJSON(steps.stock.outputs.subject) }},
+              body: ${{ toJSON(steps.stock.outputs.details) }}
+            });
+
+      - name: Mark run red (backup GitHub email)
+        if: steps.stock.outputs.in_stock == 'true'
+        run: |
+          echo "IN STOCK - push sent, issue created. Failing on purpose for the backup email."
+          exit 1
