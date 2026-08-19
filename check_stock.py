@@ -139,6 +139,7 @@ def check_woocommerce(page: str, product: dict):
         watch = [] if CANARY_MODE else [s.upper() for s in product.get("watch_skus", [])]
         watch_g = [] if CANARY_MODE else product.get("watch_grams", [])
         avail = []
+        keys = []
         for v in variations:
             sku = str(v.get("sku", "")).upper()
             label = " ".join(str(x) for x in (v.get("attributes") or {}).values())
@@ -148,23 +149,24 @@ def check_woocommerce(page: str, product: dict):
                 label = SIZE_LABELS.get(sku, sku)
                 price = v.get("display_price", "?")
                 avail.append(f"{label} (SKU {sku}, ¥{price})")
+                keys.append(sku)
         if avail:
-            return "in_stock", "Available sizes: " + ", ".join(avail)
-        return "oos", ""
+            return "in_stock", "Available sizes: " + ", ".join(avail), keys
+        return "oos", "", []
     low = page.lower()
     oos_markers = ["out of stock and unavailable", "品切れ", "在庫切れ", "売り切れ", "入荷待ち"]
     if any(m in low or m in page for m in oos_markers):
-        return "oos", ""
-    return "changed", ""
+        return "oos", "", []
+    return "changed", "", []
 
 
 def check_ocnk(page: str, product: dict):
     """Fujiedaen / ocnk.net shops. 欠品 = out of stock, カートに入れる = add-to-cart button."""
     if "欠品しております" in page or "欠品して" in page:
-        return "oos", ""
+        return "oos", "", []
     if "カートに入れる" in page or 'name="quantity"' in page:
-        return "in_stock", "Add-to-cart button is back on the page."
-    return "changed", ""
+        return "in_stock", "Add-to-cart button is back on the page.", ["item"]
+    return "changed", "", []
 
 
 def check_shopify(page: str, product: dict):
@@ -173,20 +175,21 @@ def check_shopify(page: str, product: dict):
     try:
         data = json.loads(page)
     except json.JSONDecodeError:
-        return "changed", ""
+        return "changed", "", []
     watch = [] if CANARY_MODE else product.get("watch_variants", [])
-    avail = []
+    avail, keys = [], []
     for v in data.get("variants", []):
         title = str(v.get("title", ""))
         if v.get("available") and (not watch or any(w in title for w in watch)):
             price = v.get("price")
             price_str = f", ¥{price // 100:,}" if isinstance(price, int) else ""
             avail.append(f"{title}{price_str}")
+            keys.append(str(v.get("id", title)))
     if avail:
-        return "in_stock", "Available sizes: " + ", ".join(avail)
+        return "in_stock", "Available sizes: " + ", ".join(avail), keys
     if data.get("variants"):
-        return "oos", ""
-    return "changed", ""
+        return "oos", "", []
+    return "changed", "", []
 
 
 def check_rakuten(page: str, product: dict):
@@ -208,16 +211,16 @@ def check_rakuten(page: str, product: dict):
             if isinstance(offers, list):
                 avail = " ".join(str(o.get("availability", "")) for o in offers if isinstance(o, dict))
                 if "InStock" in avail:
-                    return "in_stock", "Rakuten reports InStock"
+                    return "in_stock", "Rakuten reports InStock", ["item"]
                 if "OutOfStock" in avail or "SoldOut" in avail:
-                    return "oos", ""
+                    return "oos", "", []
     # Layer 2: text markers
     low = page.lower()
     if "sold out" in low or "売り切れ" in page or "在庫なし" in page or "再入荷" in page:
-        return "oos", ""
+        return "oos", "", []
     if "かごに追加" in page or "買い物かごに入れる" in page or "add to cart" in low:
-        return "in_stock", "Add-to-cart button present"
-    return "changed", ""
+        return "in_stock", "Add-to-cart button present", ["item"]
+    return "changed", "", []
 
 
 CHECKERS = {
@@ -226,6 +229,28 @@ CHECKERS = {
     "shopify": check_shopify,
     "rakuten": check_rakuten,
 }
+
+
+STATE_FILE = os.environ.get("STATE_FILE") or "state.json"
+
+
+def load_state() -> dict:
+    """Remembers which sizes were already reported as in stock, so a size that
+    simply STAYS in stock doesn't re-alert every hour."""
+    try:
+        with open(STATE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_state(state: dict) -> None:
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2, sort_keys=True)
+        print(f"[info] state saved ({sum(len(v) for v in state.values())} items in stock)")
+    except Exception as e:
+        print(f"[warn] could not save state: {e}")
 
 
 def send_email(subject: str, body: str) -> bool:
@@ -281,7 +306,10 @@ def main() -> int:
     if CANARY_MODE:
         print("[CANARY] Real check, all size filters disabled for this run.")
 
-    alerts = []      # products in stock
+    old_state = {} if CANARY_MODE else load_state()
+    new_state = {}
+
+    alerts = []      # products with NEWLY available sizes
     warnings = []    # pages changed / errors, need manual review
 
     for p in PRODUCTS:
@@ -292,19 +320,33 @@ def main() -> int:
             if r.status_code != 200:
                 warnings.append((p, f"HTTP {r.status_code}, could not check"))
                 continue
-            status, detail = CHECKERS[p["type"]](r.text, p)
+            status, detail, keys = CHECKERS[p["type"]](r.text, p)
         except Exception as e:
             warnings.append((p, f"error: {e}"))
             continue
 
+        pkey = p["url"]
+        already = set(old_state.get(pkey, []))
+
         if status == "in_stock":
-            print(f"[ALERT]   IN STOCK. {detail}")
-            alerts.append((p, detail))
+            new_state[pkey] = keys
+            fresh = [k for k in keys if k not in already]
+            if fresh or CANARY_MODE:
+                print(f"[ALERT]   IN STOCK (new). {detail}")
+                alerts.append((p, detail))
+            else:
+                print(f"[info]   In stock, but already reported earlier. {detail}")
         elif status == "oos":
             print("[info]   Out of stock.")
         else:
             print("[warn]   Page structure changed, needs manual review.")
-            warnings.append((p, "page structure changed, may be back in stock"))
+            # remember it, so a permanently changed page doesn't alert hourly
+            new_state[pkey] = ["__page_changed__"]
+            if "__page_changed__" not in already:
+                warnings.append((p, "page structure changed, may be back in stock"))
+
+    if not CANARY_MODE:
+        save_state(new_state)
 
     if not alerts and not warnings:
         set_github_outputs(False, "", "")
