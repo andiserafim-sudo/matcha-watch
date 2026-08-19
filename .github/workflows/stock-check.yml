@@ -3,8 +3,7 @@ name: Matcha stock check
 on:
   schedule:
     # Every hour, at minute 17 (off-peak minute: GitHub delays runs
-    # scheduled at :00 the most). Costs ~1 min/run, ~720 min/month,
-    # well within the free 2000 min/month for private repos.
+    # scheduled at :00 the most).
     - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
@@ -13,9 +12,12 @@ on:
         type: boolean
         default: false
       canary:
-        description: "CANARY: real check, alert on ANY size (incl. 30g) to test live detection"
+        description: "CANARY: real check, alert on ANY size, ignores the no-repeat memory"
         type: boolean
         default: false
+
+permissions:
+  contents: write     # needed to save state.json (the no-repeat memory)
 
 jobs:
   check:
@@ -26,7 +28,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
+
       - name: Check stock (push via ntfy + email via your mailbox)
+        id: stock
+        continue-on-error: true
         env:
           FORCE_TEST: ${{ inputs.test == true && '1' || '0' }}
           FORCE_CANARY: ${{ inputs.canary == true && '1' || '0' }}
@@ -35,5 +40,21 @@ jobs:
           MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
           MAIL_PORT: ${{ secrets.MAIL_PORT }}
         run: python check_stock.py
-        # The run only goes red if the alert email could NOT be sent
-        # (then GitHub's own failure email acts as backup).
+
+      - name: Save the no-repeat memory
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "matcha-watch"
+            git config user.email "actions@github.com"
+            git add state.json
+            git commit -m "update stock state [skip ci]"
+            git push
+          else
+            echo "No state change, nothing to commit."
+          fi
+
+      - name: Propagate result
+        if: steps.stock.outcome == 'failure'
+        run: |
+          echo "Alert email could not be sent, failing so GitHub notifies as backup."
+          exit 1
