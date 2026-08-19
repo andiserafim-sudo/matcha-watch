@@ -31,13 +31,30 @@ PRODUCTS = [
         "watch_grams": ["040", "100"],
     },
     {
+        "name": "Matcha Wako (和光) from Marukyu Koyamaen Motoan shop (Japan)",
+        "url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1161020c1/",
+        "buy_url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1161020c1/",
+        "type": "woocommerce",
+        # 1161020C1=20g can, 1161040C1=40g can, 1161100C1=100g can,
+        # 1161100C6=100g bag, 1161200C1=200g can. Alert only on 40g / 100g.
+        "watch_grams": ["040", "100"],
+    },
+    {
         "name": "Matcha Shikibu no Mukashi from Yamamasa Koyamaen (official shop)",
         # Shopify JSON endpoint: exact per-variant availability
         "url": "https://yamamasa-koyamaen.com/products/matcha-shikibu.js",
         "buy_url": "https://yamamasa-koyamaen.com/products/matcha-shikibu?variant=42106992033960",
         "type": "shopify",
-        # Only alert for 100g and 150g (30g and 300g ignored)
-        "watch_variants": ["100g", "150g"],
+        # Alert on ANY size: 30g can, 100g bag, 150g can, 300g can
+        "watch_variants": [],
+    },
+    {
+        "name": "Matcha Samidori (さみどり) from Yamamasa Koyamaen (official shop)",
+        "url": "https://yamamasa-koyamaen.com/products/matcha-samidori.js",
+        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-samidori",
+        "type": "shopify",
+        # Alert on ANY size: 30g can, 100g bag, 150g can, 300g can
+        "watch_variants": [],
     },
 ]
 
@@ -74,6 +91,11 @@ HEADERS = {
 }
 
 SIZE_LABELS = {
+    "1161020C1": "20g can",
+    "1161040C1": "40g can",
+    "1161100C1": "100g can",
+    "1161100C6": "100g bag",
+    "1161200C1": "200g can",
     "1151020C1": "20g can",
     "1151040C1": "40g can",
     "1151100C1": "100g can",
