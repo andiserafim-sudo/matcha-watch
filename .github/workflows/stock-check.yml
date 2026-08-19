@@ -2,9 +2,10 @@ name: Matcha stock check
 
 on:
   schedule:
-    # Times are UTC. 00:30 UTC = 09:30 JST, 06:30 UTC = 15:30 JST
-    - cron: "30 0 * * *"
-    - cron: "30 6 * * *"
+    # Every hour, at minute 17 (off-peak minute: GitHub delays runs
+    # scheduled at :00 the most). Costs ~1 min/run, ~720 min/month,
+    # well within the free 2000 min/month for private repos.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       test:
@@ -16,10 +17,6 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: read
-  issues: write
-
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -29,29 +26,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-
-      - name: Check stock (sends ntfy push directly)
-        id: stock
-        continue-on-error: true
+      - name: Check stock (push via ntfy + email via your mailbox)
         env:
           FORCE_TEST: ${{ inputs.test == true && '1' || '0' }}
           FORCE_CANARY: ${{ inputs.canary == true && '1' || '0' }}
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
         run: python check_stock.py
-
-      - name: Email alert via GitHub issue (contains buy links)
-        if: steps.stock.outputs.in_stock == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: ${{ toJSON(steps.stock.outputs.subject) }},
-              body: ${{ toJSON(steps.stock.outputs.details) }}
-            });
-
-      - name: Mark run red (backup GitHub email)
-        if: steps.stock.outputs.in_stock == 'true'
-        run: |
-          echo "IN STOCK - push sent, issue created. Failing on purpose for the backup email."
-          exit 1
+        # The run only goes red if the alert email could NOT be sent
+        # (then GitHub's own failure email acts as backup).
