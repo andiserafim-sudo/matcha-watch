@@ -56,6 +56,14 @@ PRODUCTS = [
         # Alert on ANY size: 30g can, 100g bag, 150g can, 300g can
         "watch_variants": [],
     },
+    {
+        "name": "Matcha Todou no Mukashi (都昔) from Horii Shichimeien (official shop)",
+        "url": "https://horiishichimeien.com/en/products/matcha-todounomukashi.js",
+        "buy_url": "https://horiishichimeien.com/en/products/matcha-todounomukashi",
+        "type": "shopify",
+        # Alert on ANY size (30g and any larger sizes they list)
+        "watch_variants": [],
+    },
 ]
 
 # ntfy.sh push notifications: no account, no secrets. The topic name is the
@@ -112,20 +120,45 @@ SIZE_LABELS = {
 
 
 def send_push(title: str, message: str) -> None:
-    """Push notification via ntfy.sh (no account needed). The email alert is
-    handled separately by the workflow, via a GitHub issue."""
+    """Push notification via ntfy.sh (no account needed).
+
+    Published as JSON, not via HTTP headers: headers can only carry latin-1,
+    so a title containing Japanese characters (e.g. 金輪) would raise an
+    encoding error and the push would never be sent.
+    """
+    payload = {
+        "topic": NTFY_TOPIC,
+        "title": title,
+        "message": message,
+        "priority": 5,
+        "tags": ["tea"],
+    }
     try:
         resp = requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=message.encode("utf-8"),
-            headers={"Title": title, "Priority": "high", "Tags": "tea"},
+            "https://ntfy.sh/",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json; charset=utf-8"},
             timeout=20,
         )
         print(f"[info] ntfy push response: {resp.status_code}")
-        if resp.status_code != 200:
-            print(f"[warn] ntfy error body: {resp.text[:300]}")
+        if resp.status_code == 200:
+            return
+        print(f"[warn] ntfy error body: {resp.text[:300]}")
     except Exception as e:
-        print(f"[warn] ntfy send failed: {e}")
+        print(f"[warn] ntfy JSON publish failed: {e}")
+
+    # Fallback: plain publish with an ASCII-safe title
+    try:
+        safe_title = title.encode("ascii", "replace").decode("ascii")
+        resp = requests.post(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=message.encode("utf-8"),
+            headers={"Title": safe_title, "Priority": "high", "Tags": "tea"},
+            timeout=20,
+        )
+        print(f"[info] ntfy fallback response: {resp.status_code}")
+    except Exception as e:
+        print(f"[warn] ntfy fallback failed: {e}")
 
 
 def check_woocommerce(page: str, product: dict):
