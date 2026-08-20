@@ -23,7 +23,7 @@ PRODUCTS = [
         "name": "Matcha Kinrin (金輪) from Marukyu Koyamaen Motoan shop (Japan)",
         "url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1151020c1/",
         "buy_url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1151020c1/",
-        "type": "woocommerce",
+        "type": "motoan",
         # Only alert for 40g and 100g. Marukyu SKUs encode grams in chars 5-7:
         # 1151020C1 = 20g can, 1151040C1 = 40g can, 1151100C1 = 100g can,
         # 1Fxx100C6 = 100g bag. We match the grams field, plus the variant
@@ -34,7 +34,7 @@ PRODUCTS = [
         "name": "Matcha Wako (和光) from Marukyu Koyamaen Motoan shop (Japan)",
         "url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1161020c1/",
         "buy_url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1161020c1/",
-        "type": "woocommerce",
+        "type": "motoan",
         # 1161020C1=20g can, 1161040C1=40g can, 1161100C1=100g can,
         # 1161100C6=100g bag, 1161200C1=200g can. Alert only on 40g / 100g.
         "watch_grams": ["040", "100"],
@@ -160,6 +160,48 @@ def check_woocommerce(page: str, product: dict):
     return "changed", "", []
 
 
+def check_motoan(page: str, product: dict):
+    """Marukyu Koyamaen Motoan (Japanese) shop. The page lists each size as a
+    separate block: SKU, set name, price, then either 在庫切れ (sold out) or a
+    quantity selector. We must judge EACH SKU on its own: the page always
+    contains 在庫切れ somewhere as long as at least one size is sold out.
+    Tag-agnostic on purpose, so a template tweak doesn't break it."""
+    positions = [(m.start(), m.group(0)) for m in
+                 re.finditer(r"\b1[0-9A-Z]{8}\b", page)]
+    # keep only the first occurrence of each SKU (they repeat in scripts/links)
+    seen, blocks = set(), []
+    for pos, sku in positions:
+        if sku not in seen:
+            seen.add(sku)
+            blocks.append((pos, sku))
+    if not blocks:
+        return "changed", "", []
+
+    watch_g = [] if CANARY_MODE else [int(g) for g in product.get("watch_grams", [])]
+    avail, keys = [], []
+    for i, (pos, sku) in enumerate(blocks):
+        end = blocks[i + 1][0] if i + 1 < len(blocks) else len(page)
+        chunk = page[pos:min(end, pos + 2500)]
+        text = re.sub(r"<[^>]+>", " ", chunk)
+        if "在庫切れ" in text or "売り切れ" in text:
+            continue  # this size is sold out
+        if not re.search(r"カゴに追加|カートに入れる|数量", text):
+            continue  # no buy control found for this size
+        gm = re.search(r"(\d+)\s*g\s*([缶袋])?", text)
+        grams = int(gm.group(1)) if gm else None
+        label = f"{gm.group(1)}g{gm.group(2) or ''}" if gm else SIZE_LABELS.get(sku, sku)
+        if watch_g and grams not in watch_g:
+            continue
+        pm = re.search(r"[¥￥]\s*([\d,]+)", text)
+        price = f", ¥{pm.group(1)}" if pm else ""
+        avail.append(f"{label} (SKU {sku}{price})")
+        keys.append(sku)
+
+    if avail:
+        return "in_stock", "Available sizes: " + ", ".join(avail), keys
+    return "oos", "", []
+
+
 def check_ocnk(page: str, product: dict):
     """Fujiedaen / ocnk.net shops. 欠品 = out of stock, カートに入れる = add-to-cart button."""
     if "欠品しております" in page or "欠品して" in page:
@@ -225,6 +267,7 @@ def check_rakuten(page: str, product: dict):
 
 CHECKERS = {
     "woocommerce": check_woocommerce,
+    "motoan": check_motoan,
     "ocnk": check_ocnk,
     "shopify": check_shopify,
     "rakuten": check_rakuten,
