@@ -19,33 +19,41 @@ import requests
 # type "woocommerce": parses per-variation stock JSON (Marukyu Koyamaen)
 # type "ocnk": Japanese shops on ocnk.net, detects the out-of-stock text
 PRODUCTS = [
+    # --- Marukyu Koyamaen (English shop): alert on 40g and 100g only ---
     {
-        "name": "Matcha Kinrin (金輪) from Marukyu Koyamaen Motoan shop (Japan)",
-        "url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1151020c1/",
-        "buy_url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1151020c1/",
+        "name": "Matcha Isuzu (五十鈴) from Marukyu Koyamaen English shop",
+        "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/1191040c1",
+        "buy_url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/1191040c1",
         "type": "motoan",
-        # Only alert for 40g and 100g. Marukyu SKUs encode grams in chars 5-7:
-        # 1151020C1 = 20g can, 1151040C1 = 40g can, 1151100C1 = 100g can,
-        # 1Fxx100C6 = 100g bag. We match the grams field, plus the variant
-        # label (e.g. "40g", "100g") as a backup.
         "watch_grams": ["040", "100"],
     },
     {
-        "name": "Matcha Wako (和光) from Marukyu Koyamaen Motoan shop (Japan)",
-        "url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1161020c1/",
-        "buy_url": "https://www.marukyu-koyamaen.co.jp/motoan-shop/products/1161020c1/",
+        "name": "Matcha Wako (和光) from Marukyu Koyamaen English shop",
+        "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/1161020c1",
+        "buy_url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/1161020c1",
         "type": "motoan",
-        # 1161020C1=20g can, 1161040C1=40g can, 1161100C1=100g can,
-        # 1161100C6=100g bag, 1161200C1=200g can. Alert only on 40g / 100g.
         "watch_grams": ["040", "100"],
     },
     {
-        "name": "Matcha Shikibu no Mukashi from Yamamasa Koyamaen (official shop)",
-        # Shopify JSON endpoint: exact per-variant availability
-        "url": "https://yamamasa-koyamaen.com/products/matcha-shikibu.js",
-        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-shikibu?variant=42106992033960",
+        "name": "Matcha Kinrin (金輪) from Marukyu Koyamaen English shop",
+        "url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/1151020c1",
+        "buy_url": "https://www.marukyu-koyamaen.co.jp/english/shop/products/1151020c1",
+        "type": "motoan",
+        "watch_grams": ["040", "100"],
+    },
+    # --- Yamamasa Koyamaen (official shop): alert on ANY size ---
+    {
+        "name": "Matcha Ogurayama (小倉山) from Yamamasa Koyamaen (official shop)",
+        "url": "https://yamamasa-koyamaen.com/products/matcha-ogurayama.js",
+        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-ogurayama",
         "type": "shopify",
-        # Alert on ANY size: 30g can, 100g bag, 150g can, 300g can
+        "watch_variants": [],
+    },
+    {
+        "name": "Matcha Shikibu no Mukashi (式部の昔) from Yamamasa Koyamaen (official shop)",
+        "url": "https://yamamasa-koyamaen.com/products/matcha-shikibu.js",
+        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-shikibu",
+        "type": "shopify",
         "watch_variants": [],
     },
     {
@@ -53,15 +61,6 @@ PRODUCTS = [
         "url": "https://yamamasa-koyamaen.com/products/matcha-samidori.js",
         "buy_url": "https://yamamasa-koyamaen.com/products/matcha-samidori",
         "type": "shopify",
-        # Alert on ANY size: 30g can, 100g bag, 150g can, 300g can
-        "watch_variants": [],
-    },
-    {
-        "name": "Matcha Todou no Mukashi (都昔) from Horii Shichimeien (official shop)",
-        "url": "https://horiishichimeien.com/en/products/matcha-todounomukashi.js",
-        "buy_url": "https://horiishichimeien.com/en/products/matcha-todounomukashi",
-        "type": "shopify",
-        # Alert on ANY size (30g and any larger sizes they list)
         "watch_variants": [],
     },
 ]
@@ -104,6 +103,10 @@ SIZE_LABELS = {
     "1161100C1": "100g can",
     "1161100C6": "100g bag",
     "1161200C1": "200g can",
+    "1191040C1": "40g can",
+    "1191100C1": "100g can",
+    "1F43100C6": "100g bag",
+    "1191200C1": "200g can",
     "1151020C1": "20g can",
     "1151040C1": "40g can",
     "1151100C1": "100g can",
@@ -193,8 +196,27 @@ def check_woocommerce(page: str, product: dict):
     return "changed", "", []
 
 
+def check_marukyu(page: str, product: dict):
+    """Try the structured variations JSON first (English shop often has it),
+    then fall back to per-SKU block parsing (Motoan template)."""
+    # 1. structured per-variant JSON, when the shop exposes it
+    if 'data-product_variations="' in page:
+        status, detail, keys = check_woocommerce(page, product)
+        if status == "in_stock":
+            return status, detail, keys
+
+    # 2. the English shop prints this exact sentence only when the WHOLE
+    #    product is unavailable. Do not use generic markers here: on the
+    #    Japanese shop 在庫切れ appears next to individual sold-out sizes.
+    if "out of stock and unavailable" in page.lower():
+        return "oos", "", []
+
+    # 3. otherwise judge each size block on its own
+    return check_motoan(page, product)
+
+
 def check_motoan(page: str, product: dict):
-    """Marukyu Koyamaen Motoan (Japanese) shop. The page lists each size as a
+    """Marukyu Koyamaen shop, Japanese (Motoan) or English. The page lists each size as a
     separate block: SKU, set name, price, then either 在庫切れ (sold out) or a
     quantity selector. We must judge EACH SKU on its own: the page always
     contains 在庫切れ somewhere as long as at least one size is sold out.
@@ -214,12 +236,12 @@ def check_motoan(page: str, product: dict):
     avail, keys = [], []
     for i, (pos, sku) in enumerate(blocks):
         end = blocks[i + 1][0] if i + 1 < len(blocks) else len(page)
-        chunk = page[pos:min(end, pos + 2500)]
+        chunk = htmllib.unescape(page[pos:min(end, pos + 2500)])
         text = re.sub(r"<[^>]+>", " ", chunk)
-        if "在庫切れ" in text or "売り切れ" in text:
+        low = text.lower()
+        if "在庫切れ" in text or "売り切れ" in text or "out of stock" in low \
+           or "sold out" in low:
             continue  # this size is sold out
-        if not re.search(r"カゴに追加|カートに入れる|数量", text):
-            continue  # no buy control found for this size
         gm = re.search(r"(\d+)\s*g\s*([缶袋])?", text)
         grams = int(gm.group(1)) if gm else None
         label = f"{gm.group(1)}g{gm.group(2) or ''}" if gm else SIZE_LABELS.get(sku, sku)
@@ -300,7 +322,7 @@ def check_rakuten(page: str, product: dict):
 
 CHECKERS = {
     "woocommerce": check_woocommerce,
-    "motoan": check_motoan,
+    "motoan": check_marukyu,
     "ocnk": check_ocnk,
     "shopify": check_shopify,
     "rakuten": check_rakuten,
@@ -394,11 +416,15 @@ def main() -> int:
             r = requests.get(p["url"], headers=HEADERS, timeout=30)
             print(f"[info]   HTTP {r.status_code}, {len(r.text)} bytes")
             if r.status_code != 200:
-                warnings.append((p, f"HTTP {r.status_code}, could not check"))
+                new_state[p["url"]] = ["__http_error__"]
+                if "__http_error__" not in set(old_state.get(p["url"], [])):
+                    warnings.append((p, f"HTTP {r.status_code}, could not check"))
                 continue
             status, detail, keys = CHECKERS[p["type"]](r.text, p)
         except Exception as e:
-            warnings.append((p, f"error: {e}"))
+            new_state[p["url"]] = ["__http_error__"]
+            if "__http_error__" not in set(old_state.get(p["url"], [])):
+                warnings.append((p, f"error: {e}"))
             continue
 
         pkey = p["url"]
