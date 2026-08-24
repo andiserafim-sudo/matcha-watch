@@ -63,11 +63,18 @@ PRODUCTS = [
         "type": "shopify",
         "watch_variants": [],
     },
-    # --- Horii Shichimeien (official shop, en-sb storefront) ---
+    # --- Horii Shichimeien (official shop) ---
     {
         "name": "Matcha Todou no Mukashi (都昔) from Horii Shichimeien",
-        "url": "https://horiishichimeien.com/en-sb/products/matcha-todounomukashi.js",
-        "buy_url": "https://horiishichimeien.com/en-sb/products/matcha-todounomukashi",
+        "url": "https://horiishichimeien.com/en/products/matcha-todounomukashi.js",
+        "buy_url": "https://horiishichimeien.com/en/products/matcha-todounomukashi",
+        "type": "shopify",
+        "watch_variants": [],
+    },
+    {
+        "name": "Matcha Uji Mukashi (宇治昔) from Horii Shichimeien",
+        "url": "https://horiishichimeien.com/en/products/matcha-ujimukashi.js",
+        "buy_url": "https://horiishichimeien.com/en/products/matcha-ujimukashi",
         "type": "shopify",
         "watch_variants": [],
     },
