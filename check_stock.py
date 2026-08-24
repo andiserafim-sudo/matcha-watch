@@ -63,6 +63,14 @@ PRODUCTS = [
         "type": "shopify",
         "watch_variants": [],
     },
+    # --- Horii Shichimeien (official shop, en-sb storefront) ---
+    {
+        "name": "Matcha Todou no Mukashi (都昔) from Horii Shichimeien",
+        "url": "https://horiishichimeien.com/en-sb/products/matcha-todounomukashi.js",
+        "buy_url": "https://horiishichimeien.com/en-sb/products/matcha-todounomukashi",
+        "type": "shopify",
+        "watch_variants": [],
+    },
 ]
 
 # ntfy.sh push notifications: no account, no secrets. The topic name is the
@@ -273,6 +281,14 @@ def check_shopify(page: str, product: dict):
         data = json.loads(page)
     except json.JSONDecodeError:
         return "changed", "", []
+    # log every variant with price and availability, so the run log doubles
+    # as a price list even when everything is sold out
+    for v in data.get("variants", []):
+        pr = v.get("price")
+        pr = f"¥{pr // 100:,}" if isinstance(pr, int) else "?"
+        mark = "IN STOCK" if v.get("available") else "sold out"
+        print(f"[price]   {v.get('title','?')}: {pr} ({mark})")
+
     watch = [] if CANARY_MODE else product.get("watch_variants", [])
     avail, keys = [], []
     for v in data.get("variants", []):
