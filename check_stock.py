@@ -41,6 +41,25 @@ PRODUCTS = [
         "type": "motoan",
         "watch_grams": ["040", "100"],
     },
+    # --- Marukyu Koyamaen via Sazen Tea (backup channel, ships to France) ---
+    {
+        "name": "Matcha Kinrin (金輪) from Marukyu Koyamaen, at Sazen Tea",
+        "url": "https://www.sazentea.com/en/products/p155-matcha-kinrin.html",
+        "buy_url": "https://www.sazentea.com/en/products/p155-matcha-kinrin.html",
+        "type": "sazen",
+    },
+    {
+        "name": "Matcha Wako (和光) from Marukyu Koyamaen, at Sazen Tea",
+        "url": "https://www.sazentea.com/en/products/p156-matcha-wako.html",
+        "buy_url": "https://www.sazentea.com/en/products/p156-matcha-wako.html",
+        "type": "sazen",
+    },
+    {
+        "name": "Matcha Isuzu (五十鈴) from Marukyu Koyamaen, at Sazen Tea",
+        "url": "https://www.sazentea.com/en/products/p159-matcha-isuzu.html",
+        "buy_url": "https://www.sazentea.com/en/products/p159-matcha-isuzu.html",
+        "type": "sazen",
+    },
     # --- Yamamasa Koyamaen via Sazen Tea (ships to France, DHL/FedEx) ---
     {
         "name": "Matcha Ogurayama (小倉山) from Yamamasa Koyamaen, at Sazen Tea",
