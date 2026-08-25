@@ -41,27 +41,24 @@ PRODUCTS = [
         "type": "motoan",
         "watch_grams": ["040", "100"],
     },
-    # --- Yamamasa Koyamaen (official shop): alert on ANY size ---
+    # --- Yamamasa Koyamaen via Sazen Tea (ships to France, DHL/FedEx) ---
     {
-        "name": "Matcha Ogurayama (小倉山) from Yamamasa Koyamaen (official shop)",
-        "url": "https://yamamasa-koyamaen.com/products/matcha-ogurayama.js",
-        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-ogurayama",
-        "type": "shopify",
-        "watch_variants": [],
+        "name": "Matcha Ogurayama (小倉山) from Yamamasa Koyamaen, at Sazen Tea",
+        "url": "https://www.sazentea.com/en/products/p823-matcha-ogurayama.html",
+        "buy_url": "https://www.sazentea.com/en/products/p823-matcha-ogurayama.html",
+        "type": "sazen",
     },
     {
-        "name": "Matcha Shikibu no Mukashi (式部の昔) from Yamamasa Koyamaen (official shop)",
-        "url": "https://yamamasa-koyamaen.com/products/matcha-shikibu.js",
-        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-shikibu",
-        "type": "shopify",
-        "watch_variants": [],
+        "name": "Matcha Shikibu no Mukashi (式部の昔) from Yamamasa Koyamaen, at Sazen Tea",
+        "url": "https://www.sazentea.com/en/products/p822-matcha-shikibu-no-mukashi.html",
+        "buy_url": "https://www.sazentea.com/en/products/p822-matcha-shikibu-no-mukashi.html",
+        "type": "sazen",
     },
     {
-        "name": "Matcha Samidori (さみどり) from Yamamasa Koyamaen (official shop)",
-        "url": "https://yamamasa-koyamaen.com/products/matcha-samidori.js",
-        "buy_url": "https://yamamasa-koyamaen.com/products/matcha-samidori",
-        "type": "shopify",
-        "watch_variants": [],
+        "name": "Matcha Samidori (さみどり) from Yamamasa Koyamaen, at Sazen Tea",
+        "url": "https://www.sazentea.com/en/products/p825-matcha-samidori.html",
+        "buy_url": "https://www.sazentea.com/en/products/p825-matcha-samidori.html",
+        "type": "sazen",
     },
     # --- Horii Shichimeien (official shop) ---
     {
@@ -122,6 +119,10 @@ SIZE_LABELS = {
     "1191100C1": "100g can",
     "1F43100C6": "100g bag",
     "1191200C1": "200g can",
+    "1171020C1": "20g can",
+    "1171040C1": "40g can",
+    "1171100C1": "100g can",
+    "1171200C1": "200g can",
     "1151020C1": "20g can",
     "1151040C1": "40g can",
     "1151100C1": "100g can",
@@ -272,6 +273,34 @@ def check_motoan(page: str, product: dict):
     return "oos", "", []
 
 
+def check_sazen(page: str, product: dict):
+    """Sazen Tea product pages. One size per page. When sold out the page says
+    'This product is unavailable at the moment'; when buyable it renders an
+    'ADD to cart' button plus net weight / best-before fields.
+
+    Note: customer reviews on these pages often contain the words 'out of
+    stock', so generic markers must NOT be used here."""
+    low = page.lower()
+    if "unavailable at the moment" in low:
+        return "oos", "", []
+    if "add to cart" in low or "add-to-cart" in low:
+        text = re.sub(r"<[^>]+>", " ", htmllib.unescape(page))
+        # Scope to the product info block. Further down the page the section
+        # "Customers who bought this item also bought" lists OTHER products
+        # with their prices, which must never be reported as this one's.
+        cut = re.search(r"SHIPPING DETAILS", text, re.I)
+        info = text[:cut.start()] if cut else text
+        wm = re.search(r"Net weight:\s*([\d.]+\s*(?:g|kg))", info, re.I)
+        size = wm.group(1).replace(" ", "") if wm else "available"
+        bm = re.search(r"Best before:\s*([A-Z]{3}\s*/\s*\d{4})", info, re.I)
+        best = f", best before {bm.group(1)}" if bm else ""
+        # the price is filled in by the shop's script, so it is often absent
+        pm = re.search(r"Unit price:\s*\$\s?([\d,]+\.\d{2})", info, re.I)
+        price = f", ${pm.group(1)}" if pm else ""
+        return "in_stock", f"Buyable at Sazen: {size}{price}{best}", ["item"]
+    return "changed", "", []
+
+
 def check_ocnk(page: str, product: dict):
     """Fujiedaen / ocnk.net shops. 欠品 = out of stock, カートに入れる = add-to-cart button."""
     if "欠品しております" in page or "欠品して" in page:
@@ -348,6 +377,7 @@ CHECKERS = {
     "motoan": check_marukyu,
     "ocnk": check_ocnk,
     "shopify": check_shopify,
+    "sazen": check_sazen,
     "rakuten": check_rakuten,
 }
 
