@@ -293,30 +293,40 @@ def check_motoan(page: str, product: dict):
 
 
 def check_sazen(page: str, product: dict):
-    """Sazen Tea product pages. One size per page. When sold out the page says
-    'This product is unavailable at the moment'; when buyable it renders an
-    'ADD to cart' button plus net weight / best-before fields.
+    """Sazen Tea product pages. One size per page.
 
-    Note: customer reviews on these pages often contain the words 'out of
-    stock', so generic markers must NOT be used here."""
-    low = page.lower()
-    if "unavailable at the moment" in low:
+    Everything is judged inside the product info block only (the text above
+    "SHIPPING DETAILS"), because further down the page customer reviews often
+    contain phrases like "out of stock" and other products are listed with
+    their own prices.
+
+    Sazen uses two different sold-out wordings depending on the maker:
+      - "This product is unavailable at the moment" (Yamamasa items)
+      - "We apologize, but this item is currently out of stock" (Marukyu items)
+    """
+    text = re.sub(r"<[^>]+>", " ", htmllib.unescape(page))
+    cut = re.search(r"SHIPPING DETAILS", text, re.I)
+    info = text[:cut.start()] if cut else text
+    low = info.lower()
+
+    oos_markers = [
+        "unavailable at the moment",
+        "this item is currently out of stock",
+        "currently out of stock",
+        "sold out",
+    ]
+    if any(m in low for m in oos_markers):
         return "oos", "", []
+
     if "add to cart" in low or "add-to-cart" in low:
-        text = re.sub(r"<[^>]+>", " ", htmllib.unescape(page))
-        # Scope to the product info block. Further down the page the section
-        # "Customers who bought this item also bought" lists OTHER products
-        # with their prices, which must never be reported as this one's.
-        cut = re.search(r"SHIPPING DETAILS", text, re.I)
-        info = text[:cut.start()] if cut else text
         wm = re.search(r"Net weight:\s*([\d.]+\s*(?:g|kg))", info, re.I)
         size = wm.group(1).replace(" ", "") if wm else "available"
         bm = re.search(r"Best before:\s*([A-Z]{3}\s*/\s*\d{4})", info, re.I)
         best = f", best before {bm.group(1)}" if bm else ""
-        # the price is filled in by the shop's script, so it is often absent
         pm = re.search(r"Unit price:\s*\$\s?([\d,]+\.\d{2})", info, re.I)
         price = f", ${pm.group(1)}" if pm else ""
         return "in_stock", f"Buyable at Sazen: {size}{price}{best}", ["item"]
+
     return "changed", "", []
 
 
