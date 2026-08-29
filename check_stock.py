@@ -189,11 +189,10 @@ def looks_like_interstitial(page: str) -> bool:
 def fetch(url: str):
     """GET with cookie persistence, retrying once through an interstitial."""
     r = SESSION.get(url, timeout=30)
-    for attempt in (1, 2):
-        if r.status_code != 200 or not looks_like_interstitial(r.text):
-            return r
-        print(f"[info]   interstitial seen, waiting {6 * attempt}s and retrying")
-        time.sleep(6 * attempt)
+    if r.status_code == 200 and looks_like_interstitial(r.text):
+        # one polite retry only: hammering is what triggers these screens
+        print("[info]   interstitial seen, waiting 8s for one retry")
+        time.sleep(8)
         r = SESSION.get(url, timeout=30, headers={"Referer": url})
     return r
 
@@ -460,6 +459,17 @@ STATE_FILE = os.environ.get("STATE_FILE") or "state.json"
 # how many consecutive blocked runs before we bother the user about it
 BLOCK_ALERT_AFTER = 6
 
+# Minimum minutes between visits to a shop. Sazen answers frequent automated
+# traffic with a JS anti-bot screen, and they restock twice a month anyway,
+# so there is nothing to gain from checking them every half hour.
+MIN_INTERVAL = {
+    "sazentea.com": 120,
+}
+
+
+def host_of(url: str) -> str:
+    return re.sub(r"^https?://(www\.)?([^/]+).*", r"\2", url)
+
 
 def load_state() -> dict:
     """Remembers which sizes were already reported as in stock, so a size that
@@ -475,7 +485,9 @@ def save_state(state: dict) -> None:
     try:
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2, sort_keys=True)
-        print(f"[info] state saved ({sum(len(v) for v in state.values())} items in stock)")
+        n = sum(len(v) for k, v in state.items()
+                if k != "__meta__" and isinstance(v, list))
+        print(f"[info] state saved ({n} items tracked)")
     except Exception as e:
         print(f"[warn] could not save state: {e}")
 
@@ -536,12 +548,42 @@ def main() -> int:
     old_state = {} if CANARY_MODE else load_state()
     new_state = {}
 
+    # carry the visit log across runs
+    meta = dict(old_state.get("__meta__", {})) if isinstance(
+        old_state.get("__meta__"), dict) else {}
+    # decisions use a snapshot taken at the start of the run, so all products
+    # of one shop are checked in the same visit rather than the first one
+    # starting the clock for its siblings
+    last_seen_prev = dict(meta.get("last_check", {}))
+    last_seen = dict(last_seen_prev)
+    now = int(time.time())
+    blocked_hosts = set()
+
     alerts = []      # products with NEWLY available sizes
     warnings = []    # pages changed / errors, need manual review
 
     for i, p in enumerate(PRODUCTS):
         if i:
             time.sleep(3)   # be a polite visitor, not a hammering bot
+        host = host_of(p["url"])
+        wait_min = MIN_INTERVAL.get(host)
+        since = ((now - last_seen_prev[host]) // 60
+                 if host in last_seen_prev else None)
+        if not CANARY_MODE and wait_min and since is not None and since < wait_min:
+            # keep the remembered stock state, otherwise skipping would wipe
+            # the memory and re-alert for items we already reported
+            if old_state.get(p["url"]):
+                new_state[p["url"]] = old_state[p["url"]]
+            print(f"[info] Skipping (checked {since} min ago, limit "
+                  f"{wait_min} min): {p['name']}")
+            continue
+        if host in blocked_hosts:
+            if old_state.get(p["url"]):
+                new_state[p["url"]] = old_state[p["url"]]
+            print(f"[info] Skipping (shop already answered with an anti-bot "
+                  f"screen this run): {p['name']}")
+            continue
+
         print(f"[info] Checking: {p['name']}")
         try:
             r = fetch(p["url"])
@@ -561,6 +603,7 @@ def main() -> int:
         pkey = p["url"]
         already = set(old_state.get(pkey, []))
 
+        last_seen[host] = now
         if status == "in_stock":
             new_state[pkey] = keys
             fresh = [k for k in keys if k not in already]
@@ -572,6 +615,7 @@ def main() -> int:
         elif status == "oos":
             print("[info]   Out of stock.")
         elif looks_like_interstitial(r.text):
+            blocked_hosts.add(host)
             # transient anti-bot screen: count consecutive occurrences and only
             # alert once it has clearly persisted, to avoid noisy false alarms
             prev = [k for k in already if k.startswith("__blocked__")]
@@ -594,6 +638,7 @@ def main() -> int:
                 warnings.append((p, "page structure changed, may be back in stock"))
 
     if not CANARY_MODE:
+        new_state["__meta__"] = {"last_check": last_seen}
         save_state(new_state)
 
     if not alerts and not warnings:
