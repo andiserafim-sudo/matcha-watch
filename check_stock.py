@@ -171,6 +171,33 @@ SIZE_LABELS = {
 }
 
 
+# Some shops (Sazen) answer automated traffic with a JS interstitial
+# ("One moment, please...") served as HTTP 200. It usually sets a cookie and
+# expects a reload, so a session that keeps cookies plus a retry gets through.
+INTERSTITIAL_MARKERS = ("one moment, please", "window.location.reload",
+                        "checking your browser", "enable javascript and cookies")
+
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+
+
+def looks_like_interstitial(page: str) -> bool:
+    head = page[:4000].lower()
+    return any(m in head for m in INTERSTITIAL_MARKERS)
+
+
+def fetch(url: str):
+    """GET with cookie persistence, retrying once through an interstitial."""
+    r = SESSION.get(url, timeout=30)
+    for attempt in (1, 2):
+        if r.status_code != 200 or not looks_like_interstitial(r.text):
+            return r
+        print(f"[info]   interstitial seen, waiting {6 * attempt}s and retrying")
+        time.sleep(6 * attempt)
+        r = SESSION.get(url, timeout=30, headers={"Referer": url})
+    return r
+
+
 def send_push(title: str, message: str) -> None:
     if not NTFY_TOPIC:
         print("[warn] NTFY_TOPIC secret not set, skipping push notification.")
@@ -430,6 +457,9 @@ CHECKERS = {
 
 STATE_FILE = os.environ.get("STATE_FILE") or "state.json"
 
+# how many consecutive blocked runs before we bother the user about it
+BLOCK_ALERT_AFTER = 6
+
 
 def load_state() -> dict:
     """Remembers which sizes were already reported as in stock, so a size that
@@ -514,7 +544,7 @@ def main() -> int:
             time.sleep(3)   # be a polite visitor, not a hammering bot
         print(f"[info] Checking: {p['name']}")
         try:
-            r = requests.get(p["url"], headers=HEADERS, timeout=30)
+            r = fetch(p["url"])
             print(f"[info]   HTTP {r.status_code}, {len(r.text)} bytes")
             if r.status_code != 200:
                 new_state[p["url"]] = ["__http_error__"]
@@ -541,6 +571,16 @@ def main() -> int:
                 print(f"[info]   In stock, but already reported earlier. {detail}")
         elif status == "oos":
             print("[info]   Out of stock.")
+        elif looks_like_interstitial(r.text):
+            # transient anti-bot screen: count consecutive occurrences and only
+            # alert once it has clearly persisted, to avoid noisy false alarms
+            prev = [k for k in already if k.startswith("__blocked__")]
+            n = int(prev[0].split("__blocked__")[1]) + 1 if prev else 1
+            new_state[pkey] = [f"__blocked__{n}"]
+            print(f"[warn]   Anti-bot screen ({n} run(s) in a row).")
+            if n == BLOCK_ALERT_AFTER:
+                warnings.append((p, f"blocked by an anti-bot screen for "
+                                    f"{n} runs in a row, check manually"))
         else:
             print("[warn]   Page structure changed, needs manual review.")
             # show what the runner actually received, so we can tell a real
