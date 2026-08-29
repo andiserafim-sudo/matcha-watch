@@ -11,6 +11,7 @@ import html as htmllib
 import json
 import os
 import re
+import time
 import sys
 
 import requests
@@ -123,10 +124,15 @@ CANARY_MODE = os.environ.get("FORCE_CANARY", "") == "1"
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     ),
-    "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
+    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+               "image/avif,image/webp,*/*;q=0.8"),
+    "Accept-Language": "en-US,en;q=0.9,fr;q=0.8,ja;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 SIZE_LABELS = {
@@ -496,7 +502,9 @@ def main() -> int:
     alerts = []      # products with NEWLY available sizes
     warnings = []    # pages changed / errors, need manual review
 
-    for p in PRODUCTS:
+    for i, p in enumerate(PRODUCTS):
+        if i:
+            time.sleep(3)   # be a polite visitor, not a hammering bot
         print(f"[info] Checking: {p['name']}")
         try:
             r = requests.get(p["url"], headers=HEADERS, timeout=30)
@@ -528,6 +536,11 @@ def main() -> int:
             print("[info]   Out of stock.")
         else:
             print("[warn]   Page structure changed, needs manual review.")
+            # show what the runner actually received, so we can tell a real
+            # template change from a bot-block page served with HTTP 200
+            snippet = re.sub(r"<[^>]+>", " ", r.text[:4000])
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+            print(f"[debug]   first 300 chars seen: {snippet[:300]}")
             # remember it, so a permanently changed page doesn't alert hourly
             new_state[pkey] = ["__page_changed__"]
             if "__page_changed__" not in already:
