@@ -134,6 +134,14 @@ HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
+# friendly shop names for alert subjects, keyed by host
+SHOP_NAMES = {
+    "sazentea.com": "Sazen Tea",
+    "marukyu-koyamaen.co.jp": "Marukyu Koyamaen",
+    "horiishichimeien.com": "Horii Shichimeien",
+    "yamamasa-koyamaen.com": "Yamamasa Koyamaen",
+}
+
 SIZE_LABELS = {
     "1161020C1": "20g can",
     "1161040C1": "40g can",
@@ -479,7 +487,7 @@ def set_github_outputs(in_stock: bool, subject: str, details: str) -> None:
 
 def main() -> int:
     if TEST_MODE:
-        subject = "TEST: matcha stock alert system works"
+        subject = "Matcha - TEST: alert system works"
         details = (
             "This is a TEST alert sent through the real notification pipeline.\n"
             "If you received this as a phone push AND as an email, everything works.\n\n"
@@ -553,13 +561,23 @@ def main() -> int:
         return 0
 
     # Build subject and body
+    # Subject prefixes make the two cases unmistakable at a glance:
+    #   "Matcha - STOCK AVAILABLE" = something is actually buyable
+    #   "Matcha - BLOCKED"         = a shop could not be read (block, error,
+    #                                 or template change), nothing to buy
     if alerts:
-        if len(alerts) == 1:
-            subject = f"{alerts[0][0]['name']} is available"
-        else:
-            subject = "Matcha in stock: " + " / ".join(a[0]["name"] for a in alerts)
+        names = " / ".join(a[0]["name"].split(" from ")[0] for a in alerts)
+        subject = f"Matcha - STOCK AVAILABLE: {names}"
+        if warnings:
+            subject += f" (+{len(warnings)} shop(s) unreadable)"
     else:
-        subject = "Matcha stock checker: page changed, please verify"
+        shops = []
+        for w, _ in warnings:
+            host = re.sub(r"^https?://(www\.)?([^/]+).*", r"\2", w["url"])
+            shop = SHOP_NAMES.get(host, host)
+            if shop not in shops:
+                shops.append(shop)
+        subject = f"Matcha - BLOCKED: could not read {' / '.join(shops)}"
 
     lines = []
     for p, detail in alerts:
@@ -574,9 +592,12 @@ def main() -> int:
         lines.append("")
     details = "\n".join(lines).strip()
 
+    lead = ("You can buy it now." if alerts else
+            "Nothing to buy. One or more shops could not be read: this is a "
+            "block, an error, or a page change, not a restock.")
     print(f"[ALERT] Subject: {subject}\n{details}")
-    send_push(subject, f"You can buy it now.\n\n{details}")
-    ok = send_email(subject, f"You can buy it now.\n\n{details}")
+    send_push(subject, f"{lead}\n\n{details}")
+    ok = send_email(subject, f"{lead}\n\n{details}")
     set_github_outputs(True, subject, details)
     # exit 1 (red run + GitHub backup email) ONLY if our own email failed
     return 0 if ok else 1
