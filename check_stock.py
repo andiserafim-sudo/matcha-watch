@@ -96,16 +96,17 @@ PRODUCTS = [
     },
 ]
 
-# ntfy.sh push notifications: no account, no secrets. The topic name is the
-# only "password", keep it private. Subscribe to this exact topic in the
-# ntfy app on your phone to receive alerts.
-NTFY_TOPIC = "matcha-andi-zyiz2e"
+# ntfy.sh push notifications: no account needed. The topic name is the only
+# password, so it lives in the NTFY_TOPIC repository secret, never in this
+# file. This repo can therefore be public. Subscribe to that same topic in
+# the ntfy app on your phone.
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 
 # Email alert via your own mailbox (SMTP). Set these as GitHub secrets:
 #   MAIL_USER = address the alert is sent FROM (e.g. your Gmail)
 #   MAIL_PASS = Gmail App Password (or SMTP password of that mailbox)
 # Optional: MAIL_SERVER (default smtp.gmail.com), MAIL_PORT (default 465)
-ALERT_TO = "andi@serafim.fr"
+ALERT_TO = os.environ.get("ALERT_TO") or os.environ.get("MAIL_USER", "")
 MAIL_USER = os.environ.get("MAIL_USER", "")
 MAIL_PASS = os.environ.get("MAIL_PASS", "")
 MAIL_SERVER = os.environ.get("MAIL_SERVER") or "smtp.gmail.com"
@@ -158,6 +159,9 @@ SIZE_LABELS = {
 
 
 def send_push(title: str, message: str) -> None:
+    if not NTFY_TOPIC:
+        print("[warn] NTFY_TOPIC secret not set, skipping push notification.")
+        return
     """Push notification via ntfy.sh (no account needed).
 
     Published as JSON, not via HTTP headers: headers can only carry latin-1,
