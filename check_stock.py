@@ -42,43 +42,51 @@ PRODUCTS = [
         "type": "motoan",
         "watch_grams": ["040", "100"],
     },
-    # --- Marukyu Koyamaen via Sazen Tea (backup channel, ships to France) ---
+    # --- Sazen Tea: one category page covers every product of a maker.
+    #     The listing only shows items that can actually be bought, so a
+    #     product is in stock exactly when its add-to-basket link is there.
+    #     Two requests instead of six keeps us under their anti-bot radar.
     {
         "name": "Matcha Kinrin (金輪) from Marukyu Koyamaen, at Sazen Tea",
-        "url": "https://www.sazentea.com/en/products/p155-matcha-kinrin.html",
+        "url": "https://www.sazentea.com/en/products/c24-marukyu-koyamaen-matcha",
         "buy_url": "https://www.sazentea.com/en/products/p155-matcha-kinrin.html",
-        "type": "sazen",
+        "type": "sazen_cat",
+        "article_id": "155",
     },
     {
         "name": "Matcha Wako (和光) from Marukyu Koyamaen, at Sazen Tea",
-        "url": "https://www.sazentea.com/en/products/p156-matcha-wako.html",
+        "url": "https://www.sazentea.com/en/products/c24-marukyu-koyamaen-matcha",
         "buy_url": "https://www.sazentea.com/en/products/p156-matcha-wako.html",
-        "type": "sazen",
+        "type": "sazen_cat",
+        "article_id": "156",
     },
     {
         "name": "Matcha Isuzu (五十鈴) from Marukyu Koyamaen, at Sazen Tea",
-        "url": "https://www.sazentea.com/en/products/p159-matcha-isuzu.html",
+        "url": "https://www.sazentea.com/en/products/c24-marukyu-koyamaen-matcha",
         "buy_url": "https://www.sazentea.com/en/products/p159-matcha-isuzu.html",
-        "type": "sazen",
+        "type": "sazen_cat",
+        "article_id": "159",
     },
-    # --- Yamamasa Koyamaen via Sazen Tea (ships to France, DHL/FedEx) ---
     {
         "name": "Matcha Ogurayama (小倉山) from Yamamasa Koyamaen, at Sazen Tea",
-        "url": "https://www.sazentea.com/en/products/p823-matcha-ogurayama.html",
+        "url": "https://www.sazentea.com/en/products/c85-yamamasa-koyamaen-matcha",
         "buy_url": "https://www.sazentea.com/en/products/p823-matcha-ogurayama.html",
-        "type": "sazen",
+        "type": "sazen_cat",
+        "article_id": "823",
     },
     {
         "name": "Matcha Shikibu no Mukashi (式部の昔) from Yamamasa Koyamaen, at Sazen Tea",
-        "url": "https://www.sazentea.com/en/products/p822-matcha-shikibu-no-mukashi.html",
+        "url": "https://www.sazentea.com/en/products/c85-yamamasa-koyamaen-matcha",
         "buy_url": "https://www.sazentea.com/en/products/p822-matcha-shikibu-no-mukashi.html",
-        "type": "sazen",
+        "type": "sazen_cat",
+        "article_id": "822",
     },
     {
         "name": "Matcha Samidori (さみどり) from Yamamasa Koyamaen, at Sazen Tea",
-        "url": "https://www.sazentea.com/en/products/p825-matcha-samidori.html",
+        "url": "https://www.sazentea.com/en/products/c85-yamamasa-koyamaen-matcha",
         "buy_url": "https://www.sazentea.com/en/products/p825-matcha-samidori.html",
-        "type": "sazen",
+        "type": "sazen_cat",
+        "article_id": "825",
     },
     # --- Horii Shichimeien (official shop) ---
     {
@@ -186,14 +194,26 @@ def looks_like_interstitial(page: str) -> bool:
     return any(m in head for m in INTERSTITIAL_MARKERS)
 
 
+PAGE_CACHE = {}
+
+
 def fetch(url: str):
-    """GET with cookie persistence, retrying once through an interstitial."""
+    """GET with cookie persistence, retrying once through an interstitial.
+    Responses are cached per run, so products that share a category page
+    cost exactly one request."""
+    if url in PAGE_CACHE:
+        print("[info]   (reusing the page already fetched this run)")
+        return PAGE_CACHE[url]
     r = SESSION.get(url, timeout=30)
+    if r.status_code != 200 or not looks_like_interstitial(r.text):
+        PAGE_CACHE[url] = r
+        return r
     if r.status_code == 200 and looks_like_interstitial(r.text):
         # one polite retry only: hammering is what triggers these screens
         print("[info]   interstitial seen, waiting 8s for one retry")
         time.sleep(8)
         r = SESSION.get(url, timeout=30, headers={"Referer": url})
+    PAGE_CACHE[url] = r
     return r
 
 
@@ -335,41 +355,63 @@ def check_motoan(page: str, product: dict):
     return "oos", "", []
 
 
-def check_sazen(page: str, product: dict):
-    """Sazen Tea product pages. One size per page.
-
-    Everything is judged inside the product info block only (the text above
-    "SHIPPING DETAILS"), because further down the page customer reviews often
-    contain phrases like "out of stock" and other products are listed with
-    their own prices.
-
-    Sazen uses two different sold-out wordings depending on the maker:
-      - "This product is unavailable at the moment" (Yamamasa items)
-      - "We apologize, but this item is currently out of stock" (Marukyu items)
-    """
-    text = re.sub(r"<[^>]+>", " ", htmllib.unescape(page))
-    cut = re.search(r"SHIPPING DETAILS", text, re.I)
-    info = text[:cut.start()] if cut else text
-    low = info.lower()
-
-    oos_markers = [
-        "unavailable at the moment",
-        "this item is currently out of stock",
-        "currently out of stock",
-        "sold out",
-    ]
-    if any(m in low for m in oos_markers):
+def check_sazen_category(page: str, product: dict):
+    """Sazen category listing. Sold-out products are dropped from the grid
+    entirely, so a product is in stock exactly when its add-to-basket link is
+    present. Prices come from its own <ul data-id="..."> block, which is the
+    only reliable anchor: neighbouring tiles carry their own prices, and a
+    'recommended products' list can appear on the same page."""
+    aid = product.get("article_id", "")
+    if not aid:
+        return "changed", "", []
+    flat = page.replace("&amp;", "&")
+    if "add-to-basket" not in flat:
+        return "changed", "", []          # not a listing page at all
+    if f"article_id={aid}&" not in flat:
         return "oos", "", []
 
-    if "add to cart" in low or "add-to-cart" in low:
-        wm = re.search(r"Net weight:\s*([\d.]+\s*(?:g|kg))", info, re.I)
-        size = wm.group(1).replace(" ", "") if wm else "available"
-        bm = re.search(r"Best before:\s*([A-Z]{3}\s*/\s*\d{4})", info, re.I)
-        best = f", best before {bm.group(1)}" if bm else ""
-        pm = re.search(r"Unit price:\s*\$\s?([\d,]+\.\d{2})", info, re.I)
-        price = f", ${pm.group(1)}" if pm else ""
-        return "in_stock", f"Buyable at Sazen: {size}{price}{best}", ["item"]
+    sizes = []
+    m = re.search(rf'<ul data-id="{aid}"[^>]*>(.*?)</ul>', page, re.S)
+    if m:
+        for li in re.finditer(r'<li[^>]*data-price="[\d.]+"[^>]*>(.*?)</li>',
+                              m.group(1), re.S):
+            txt = re.sub(r"<[^>]+>", " ", htmllib.unescape(li.group(1)))
+            sizes.append(re.sub(r"\s+", " ", txt).strip())
+    detail = "Buyable at Sazen"
+    if sizes:
+        detail += ": " + ", ".join(sizes)
+    return "in_stock", detail, [aid]
 
+
+def sazen_sizes_in_stock(page: str):
+    """Per-size availability on a Sazen product page. Each size is a
+    <span class="price-item"> and the ONLY signal is the literal text
+    '- in stock!' inside it: there is no disabled attribute and no data
+    attribute to read."""
+    out = []
+    for m in re.finditer(r'<span id="unit-\d+" class="price-item">(.*?)'
+                         r'(?=<span id="unit-|</p>)', page, re.S):
+        txt = re.sub(r"<[^>]+>", " ", htmllib.unescape(m.group(1)))
+        txt = re.sub(r"\s+", " ", txt).strip()
+        if "in stock" in txt.lower():
+            out.append(txt.replace("- in stock!", "").strip())
+    return out
+
+
+def check_sazen(page: str, product: dict):
+    """Sazen product page. The presence of the order form is the primary
+    test: the shop uses several different sold-out sentences (at least
+    'currently out of stock' and 'unavailable at the moment'), all inside
+    <strong class="red">, so matching on wording alone is brittle."""
+    if 'id="basket-add"' not in page:
+        if re.search(r'<strong class="red">', page):
+            return "oos", "", []
+        return "changed", "", []
+
+    sizes = sazen_sizes_in_stock(page)
+    if sizes:
+        return "in_stock", "Buyable at Sazen: " + ", ".join(sizes), ["item"]
+    # form present but no size marked available: report it rather than guess
     return "changed", "", []
 
 
@@ -450,6 +492,7 @@ CHECKERS = {
     "ocnk": check_ocnk,
     "shopify": check_shopify,
     "sazen": check_sazen,
+    "sazen_cat": check_sazen_category,
     "rakuten": check_rakuten,
 }
 
@@ -575,14 +618,14 @@ def main() -> int:
         if not CANARY_MODE and wait_min and since is not None and since < wait_min:
             # keep the remembered stock state, otherwise skipping would wipe
             # the memory and re-alert for items we already reported
-            if old_state.get(p["url"]):
-                new_state[p["url"]] = old_state[p["url"]]
+            if old_state.get(p["buy_url"]):
+                new_state[p["buy_url"]] = old_state[p["buy_url"]]
             print(f"[info] Skipping (checked {since} min ago, limit "
                   f"{wait_min} min): {p['name']}")
             continue
         if host in blocked_hosts:
-            if old_state.get(p["url"]):
-                new_state[p["url"]] = old_state[p["url"]]
+            if old_state.get(p["buy_url"]):
+                new_state[p["buy_url"]] = old_state[p["buy_url"]]
             print(f"[info] Skipping (shop already answered with an anti-bot "
                   f"screen this run): {p['name']}")
             continue
@@ -592,21 +635,32 @@ def main() -> int:
             r = fetch(p["url"])
             print(f"[info]   HTTP {r.status_code}, {len(r.text)} bytes")
             if r.status_code != 200:
-                new_state[p["url"]] = ["__http_error__"]
-                if "__http_error__" not in set(old_state.get(p["url"], [])):
+                new_state[p["buy_url"]] = ["__http_error__"]
+                if "__http_error__" not in set(old_state.get(p["buy_url"], [])):
                     warnings.append((p, f"HTTP {r.status_code}, could not check"))
                 continue
             status, detail, keys = CHECKERS[p["type"]](r.text, p)
         except Exception as e:
-            new_state[p["url"]] = ["__http_error__"]
-            if "__http_error__" not in set(old_state.get(p["url"], [])):
+            new_state[p["buy_url"]] = ["__http_error__"]
+            if "__http_error__" not in set(old_state.get(p["buy_url"], [])):
                 warnings.append((p, f"error: {e}"))
             continue
 
-        pkey = p["url"]
+        pkey = p["buy_url"]
         already = set(old_state.get(pkey, []))
 
         last_seen[host] = now
+        if status == "in_stock" and p["type"] == "sazen_cat":
+            # one extra request, only on a restock, to learn WHICH size returned
+            try:
+                rp = fetch(p["buy_url"])
+                if rp.status_code == 200:
+                    sizes = sazen_sizes_in_stock(rp.text)
+                    if sizes:
+                        detail += " | in stock: " + ", ".join(sizes)
+            except Exception as e:
+                print(f"[warn]   could not read per-size detail: {e}")
+
         if status == "in_stock":
             new_state[pkey] = keys
             # remember when each size first appeared, to report how long the
