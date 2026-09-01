@@ -52,6 +52,7 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
           MAIL_PASS: ${{ secrets.MAIL_PASS }}
           MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
           MAIL_PORT: ${{ secrets.MAIL_PORT }}
