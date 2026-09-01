@@ -33,6 +33,16 @@ jobs:
           python-version: "3.12"
       - run: pip install requests
 
+      - name: Spread the requests across the hour
+        if: inputs.test != true
+        run: |
+          # The external cron fires at :57. Waiting up to 12 minutes puts the
+          # actual visit somewhere between :57 and :09, so the shops never see
+          # a request landing on the same clock minute every single hour.
+          D=$(shuf -i 0-720 -n 1)
+          echo "waiting ${D}s (about $((D / 60)) min) before checking"
+          sleep $D
+
       - name: Check stock (push via ntfy + email via your mailbox)
         id: stock
         continue-on-error: true
