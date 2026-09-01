@@ -577,7 +577,9 @@ def send_email(subject: str, body: str) -> bool:
         with smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT, timeout=30) as s:
             s.login(MAIL_USER, MAIL_PASS)
             s.send_message(msg)
-        print(f"[info] email sent to {ALERT_TO} via {MAIL_SERVER}")
+        # the address is deliberately not printed: this output is also saved
+        # to last-run.log, which lives in the repository
+        print(f"[info] alert email sent via {MAIL_SERVER}")
         return True
     except Exception as e:
         print(f"[warn] email failed: {e}")
