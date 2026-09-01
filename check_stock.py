@@ -521,20 +521,30 @@ def host_of(url: str) -> str:
 
 
 def log_event(when: int, shop: str, product: str, event: str, detail: str) -> None:
-    """One line per stock change, in JST so the pattern is readable at a glance."""
-    t = time.gmtime(when + JST)
+    """One line per stock change. Times are given in Tokyo (where the shops
+    are) and in Paris (where you are), so neither needs converting by hand."""
+    jst = time.gmtime(when + 9 * 3600)
+    try:
+        from zoneinfo import ZoneInfo
+        import datetime
+        par = datetime.datetime.fromtimestamp(when, ZoneInfo("Europe/Paris"))
+        paris = par.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        paris = ""
     row = [
-        time.strftime("%Y-%m-%d %H:%M", t),          # JST timestamp
-        time.strftime("%a", t),                      # JST weekday
-        time.strftime("%H", t),                      # JST hour, for grouping
+        time.strftime("%Y-%m-%d %H:%M", jst),        # Tokyo timestamp
+        time.strftime("%a", jst),                    # Tokyo weekday
+        time.strftime("%H", jst),                    # Tokyo hour, for grouping
+        paris,                                       # Paris timestamp
         shop, product, event,
         detail.replace(",", ";").replace("\n", " ")[:200],
     ]
     try:
-        new = not os.path.exists(LOG_FILE)
+        new_file = not os.path.exists(LOG_FILE)
         with open(LOG_FILE, "a", encoding="utf-8") as f:
-            if new:
-                f.write("jst_time,jst_day,jst_hour,shop,product,event,detail\n")
+            if new_file:
+                f.write("tokyo_time,tokyo_day,tokyo_hour,paris_time,"
+                        "shop,product,event,detail\n")
             f.write(",".join(row) + "\n")
     except Exception as e:
         print(f"[warn] could not write the history log: {e}")
