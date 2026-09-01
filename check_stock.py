@@ -499,6 +499,12 @@ CHECKERS = {
 
 STATE_FILE = os.environ.get("STATE_FILE") or "state.json"
 
+# Append-only history of every restock and sell-out, so we can later see at
+# which Japanese hours stock actually appears and slow the checks down when
+# nothing ever happens. JST is UTC+9 all year: Japan has no daylight saving.
+LOG_FILE = os.environ.get("LOG_FILE") or "restock-log.csv"
+JST = 9 * 3600
+
 # how many consecutive blocked runs before we bother the user about it
 BLOCK_ALERT_AFTER = 6
 
@@ -512,6 +518,26 @@ MIN_INTERVAL = {
 
 def host_of(url: str) -> str:
     return re.sub(r"^https?://(www\.)?([^/]+).*", r"\2", url)
+
+
+def log_event(when: int, shop: str, product: str, event: str, detail: str) -> None:
+    """One line per stock change, in JST so the pattern is readable at a glance."""
+    t = time.gmtime(when + JST)
+    row = [
+        time.strftime("%Y-%m-%d %H:%M", t),          # JST timestamp
+        time.strftime("%a", t),                      # JST weekday
+        time.strftime("%H", t),                      # JST hour, for grouping
+        shop, product, event,
+        detail.replace(",", ";").replace("\n", " ")[:200],
+    ]
+    try:
+        new = not os.path.exists(LOG_FILE)
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            if new:
+                f.write("jst_time,jst_day,jst_hour,shop,product,event,detail\n")
+            f.write(",".join(row) + "\n")
+    except Exception as e:
+        print(f"[warn] could not write the history log: {e}")
 
 
 def load_state() -> dict:
@@ -672,6 +698,9 @@ def main() -> int:
             if fresh or CANARY_MODE:
                 print(f"[ALERT]   IN STOCK (new). {detail}")
                 alerts.append((p, detail))
+                if fresh:
+                    log_event(now, SHOP_NAMES.get(host, host),
+                              p["name"].split(" from ")[0], "in_stock", detail)
             else:
                 print(f"[info]   In stock, but already reported earlier. {detail}")
         elif status == "oos":
@@ -686,6 +715,8 @@ def main() -> int:
                 short = p["name"].split(" from ")[0]
                 shop = SHOP_NAMES.get(host_of(p["url"]), host_of(p["url"]))
                 print(f"[info]   Sold out again after {window}.")
+                log_event(now, shop, short, "sold_out",
+                          f"was available {window}")
                 sold_out.append(
                     (f"{short} sold out at {shop}",
                      f"It stayed available for about {window}.\n{p['buy_url']}"))
