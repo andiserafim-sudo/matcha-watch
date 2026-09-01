@@ -1,91 +1,30 @@
-name: Matcha stock check
-
-on:
-  schedule:
-    # Backup only: the real clock is an external cron service calling the
-    # workflow_dispatch API, because GitHub drops many scheduled runs.
-    - cron: "17 * * * *"
-  workflow_dispatch:
-    inputs:
-      test:
-        description: "TEST: send a fake alert to verify push + email delivery"
-        type: boolean
-        default: false
-      canary:
-        description: "CANARY: real check, alert on ANY size, ignores the no-repeat memory"
-        type: boolean
-        default: false
-
-permissions:
-  contents: write     # needed to save state.json, restock-log.csv, runs-recent.log
-
-concurrency:
-  group: matcha-stock-check
-  cancel-in-progress: false
-
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install requests
-
-      - name: Check stock (push via ntfy + email via your mailbox)
-        id: stock
-        continue-on-error: true
-        env:
-          FORCE_TEST: ${{ inputs.test == true && '1' || '0' }}
-          FORCE_CANARY: ${{ inputs.canary == true && '1' || '0' }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          ALERT_TO: ${{ secrets.ALERT_TO }}
-          MAIL_USER: ${{ secrets.MAIL_USER }}
-          MAIL_PASS: ${{ secrets.MAIL_PASS }}
-          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
-          MAIL_PORT: ${{ secrets.MAIL_PORT }}
-        run: |
-          {
-            echo "run #${{ github.run_number }} | $(date -u '+%Y-%m-%d %H:%M UTC') | trigger: ${{ github.event_name }}"
-            echo
-          } > last-run.log
-          python check_stock.py 2>&1 | tee -a last-run.log
-
-      - name: Keep the last 5 runs in one readable file
+      - name: Keep the last 24 hours of runs
         if: always()
         run: |
-          # newest run on top, older ones below, cut after the 5th block
-          if [ -f runs-recent.log ]; then
-            cat last-run.log > merged.tmp
-            echo >> merged.tmp
-            cat runs-recent.log >> merged.tmp
-          else
-            cp last-run.log merged.tmp
-          fi
-          awk '/^run #/{n++} n<=5' merged.tmp > runs-recent.log
-          rm -f merged.tmp last-run.log
+          python - <<'PY'
+          import os, re, datetime
 
-      - name: Save the memory and the restock history
-        run: |
-          git config user.name "matcha-watch"
-          git config user.email "actions@github.com"
-          # restock-log.csv only appears after the first real stock event, and
-          # git add fails outright on a path that does not exist, so stage
-          # each file only if it is actually there.
-          for f in state.json restock-log.csv runs-recent.log; do
-            if [ -f "$f" ]; then git add "$f"; fi
-          done
-          if git diff --cached --quiet; then
-            echo "Nothing to commit."
-          else
-            git commit -m "update stock state and history [skip ci]"
-            git pull --rebase --autostash || true
-            git push
-          fi
+          new = open("last-run.log", encoding="utf-8").read()
+          old = ""
+          if os.path.exists("runs-recent.log"):
+              old = open("runs-recent.log", encoding="utf-8").read()
 
-      - name: Propagate result
-        if: steps.stock.outcome == 'failure'
-        run: |
-          echo "Alert email could not be sent, failing so GitHub notifies as backup."
-          exit 1
+          # blocks start with "run #", newest first
+          blocks = [b for b in (new + "\n" + old).split("run #") if b.strip()]
+          now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+          cutoff = now - datetime.timedelta(hours=24)
+
+          keep = []
+          for i, b in enumerate(blocks):
+              m = re.match(r"\s*\d+ \| (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC", b)
+              if not m:
+                  continue                      # unparseable header, drop it
+              when = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M")
+              if when >= cutoff or i == 0:      # always keep the newest run
+                  keep.append(b.rstrip())
+
+          with open("runs-recent.log", "w", encoding="utf-8") as f:
+              f.write("run #" + "\n\nrun #".join(keep) + "\n")
+          print(f"kept {len(keep)} run(s) from the last 24 hours")
+          PY
+          rm -f last-run.log
