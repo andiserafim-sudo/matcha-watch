@@ -1,3 +1,9 @@
+run #318 | Paris 01 Sep 20:38 | Tokyo 02 Sep 03:38 | trigger: workflow_dispatch | utc 2026-09-01 18:38
+
+[TEST] Sending test alert...
+[info] ntfy push response: 200
+[warn] email failed: (535, b'5.7.8 Username and Password not accepted. For more information, go to\n5.7.8  https://support.google.com/mail/?p=BadCredentials 6a1803df08f44-90e9ee08710sm396406d6.2 - gsmtp')
+
 run #317 | Paris 01 Sep 20:36 | Tokyo 02 Sep 03:36 | trigger: workflow_dispatch | utc 2026-09-01 18:36
 
 [TEST] Sending test alert...
