@@ -197,7 +197,7 @@ def fetch(url: str):
     return r
 
 
-def send_push(title: str, message: str) -> None:
+def send_push(title: str, message: str, priority: int = 5) -> None:
     if not NTFY_TOPIC:
         print("[warn] NTFY_TOPIC secret not set, skipping push notification.")
         return
@@ -211,8 +211,8 @@ def send_push(title: str, message: str) -> None:
         "topic": NTFY_TOPIC,
         "title": title,
         "message": message,
-        "priority": 5,
-        "tags": ["tea"],
+        "priority": priority,
+        "tags": ["tea"] if priority >= 4 else ["hourglass"],
     }
     try:
         resp = requests.post(
@@ -556,6 +556,9 @@ def main() -> int:
     # starting the clock for its siblings
     last_seen_prev = dict(meta.get("last_check", {}))
     last_seen = dict(last_seen_prev)
+    old_since = meta.get("in_stock_since", {}) or {}
+    since_map = {}
+    sold_out = []          # quiet, per-product "window closed" notices
     now = int(time.time())
     blocked_hosts = set()
 
@@ -606,6 +609,11 @@ def main() -> int:
         last_seen[host] = now
         if status == "in_stock":
             new_state[pkey] = keys
+            # remember when each size first appeared, to report how long the
+            # window stayed open once it sells out again
+            for k in keys:
+                since_map.setdefault(pkey, {})
+                since_map[pkey][k] = (old_since.get(pkey, {}).get(k) or now)
             fresh = [k for k in keys if k not in already]
             if fresh or CANARY_MODE:
                 print(f"[ALERT]   IN STOCK (new). {detail}")
@@ -614,6 +622,19 @@ def main() -> int:
                 print(f"[info]   In stock, but already reported earlier. {detail}")
         elif status == "oos":
             print("[info]   Out of stock.")
+            was_in_stock = [k for k in already if not k.startswith("__")]
+            if was_in_stock:
+                started = min((old_since.get(pkey, {}).get(k, now)
+                               for k in was_in_stock), default=now)
+                mins = max(1, (now - started) // 60)
+                window = (f"{mins // 60}h{mins % 60:02d}m" if mins >= 60
+                          else f"{mins}m")
+                short = p["name"].split(" from ")[0]
+                shop = SHOP_NAMES.get(host_of(p["url"]), host_of(p["url"]))
+                print(f"[info]   Sold out again after {window}.")
+                sold_out.append(
+                    (f"{short} sold out at {shop}",
+                     f"It stayed available for about {window}.\n{p['buy_url']}"))
         elif looks_like_interstitial(r.text):
             blocked_hosts.add(host)
             # transient anti-bot screen: count consecutive occurrences and only
@@ -638,8 +659,14 @@ def main() -> int:
                 warnings.append((p, "page structure changed, may be back in stock"))
 
     if not CANARY_MODE:
-        new_state["__meta__"] = {"last_check": last_seen}
+        new_state["__meta__"] = {"last_check": last_seen,
+                                 "in_stock_since": since_map}
         save_state(new_state)
+
+    for title, body in sold_out:
+        print(f"[info] Quiet notice: {title}")
+        send_push(f"Matcha - sold out: {title.split(' sold out')[0]}",
+                  body, priority=2)
 
     if not alerts and not warnings:
         set_github_outputs(False, "", "")
