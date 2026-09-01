@@ -47,7 +47,7 @@ jobs:
           MAIL_PORT: ${{ secrets.MAIL_PORT }}
         run: |
           {
-            echo "run #${{ github.run_number }} | $(date -u '+%Y-%m-%d %H:%M UTC') | trigger: ${{ github.event_name }}"
+            echo "run #${{ github.run_number }} | Paris $(TZ=Europe/Paris date '+%d %b %H:%M') | Tokyo $(TZ=Asia/Tokyo date '+%d %b %H:%M') | trigger: ${{ github.event_name }} | utc $(date -u '+%Y-%m-%d %H:%M')"
             echo
           } > last-run.log
           python check_stock.py 2>&1 | tee -a last-run.log
@@ -70,7 +70,7 @@ jobs:
 
           keep = []
           for i, b in enumerate(blocks):
-              m = re.match(r"\s*\d+ \| (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC", b)
+              m = re.search(r"utc (\d{4}-\d{2}-\d{2} \d{2}:\d{2})", b.split("\n")[0])
               if not m:
                   continue                      # unparseable header, drop it
               when = datetime.datetime.strptime(m.group(1), "%Y-%m-%d %H:%M")
