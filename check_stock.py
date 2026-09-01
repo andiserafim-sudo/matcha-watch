@@ -118,6 +118,10 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 ALERT_TO = os.environ.get("ALERT_TO") or os.environ.get("MAIL_USER", "")
 MAIL_USER = os.environ.get("MAIL_USER", "")
 MAIL_PASS = os.environ.get("MAIL_PASS", "")
+# The address the alert is sent FROM. With a relay such as Brevo the login
+# is a technical address (7xxxxx@smtp-brevo.com) while the sender must be an
+# address you verified there, so the two are kept separate.
+MAIL_FROM = os.environ.get("MAIL_FROM") or os.environ.get("MAIL_USER", "")
 MAIL_SERVER = os.environ.get("MAIL_SERVER") or "smtp.gmail.com"
 MAIL_PORT = int(os.environ.get("MAIL_PORT") or "465")
 
@@ -572,7 +576,8 @@ def save_state(state: dict) -> None:
 
 
 def send_email(subject: str, body: str) -> bool:
-    """Send the alert email via SMTP (SSL). Returns True on success."""
+    """Send the alert email over SMTP. Port 465 uses implicit TLS, anything
+    else (587, 2525) is upgraded with STARTTLS. Returns True on success."""
     if not MAIL_USER or not MAIL_PASS:
         print("[warn] MAIL_USER / MAIL_PASS not set, skipping email.")
         return False
@@ -580,16 +585,26 @@ def send_email(subject: str, body: str) -> bool:
     from email.message import EmailMessage
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = f"Matcha Watcher <{MAIL_USER}>"
+    msg["From"] = f"Matcha Watcher <{MAIL_FROM}>"
     msg["To"] = ALERT_TO
     msg.set_content(body)
     try:
-        with smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT, timeout=30) as s:
-            s.login(MAIL_USER, MAIL_PASS)
-            s.send_message(msg)
+        if MAIL_PORT == 465:
+            # implicit TLS: encrypted from the first byte
+            with smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT, timeout=30) as s:
+                s.login(MAIL_USER, MAIL_PASS)
+                s.send_message(msg)
+        else:
+            # 587 or 2525: plain connection upgraded with STARTTLS
+            with smtplib.SMTP(MAIL_SERVER, MAIL_PORT, timeout=30) as s:
+                s.ehlo()
+                s.starttls()
+                s.ehlo()
+                s.login(MAIL_USER, MAIL_PASS)
+                s.send_message(msg)
         # the address is deliberately not printed: this output is also saved
-        # to last-run.log, which lives in the repository
-        print(f"[info] alert email sent via {MAIL_SERVER}")
+        # to runs-recent.log, which lives in the repository
+        print(f"[info] alert email sent via {MAIL_SERVER}:{MAIL_PORT}")
         return True
     except Exception as e:
         print(f"[warn] email failed: {e}")
