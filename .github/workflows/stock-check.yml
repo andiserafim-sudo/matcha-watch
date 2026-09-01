@@ -17,7 +17,7 @@ on:
         default: false
 
 permissions:
-  contents: write     # needed to save state.json and restock-log.csv
+  contents: write     # needed to save state.json, restock-log.csv, runs-recent.log
 
 concurrency:
   group: matcha-stock-check
@@ -45,7 +45,26 @@ jobs:
           MAIL_PASS: ${{ secrets.MAIL_PASS }}
           MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
           MAIL_PORT: ${{ secrets.MAIL_PORT }}
-        run: python check_stock.py
+        run: |
+          {
+            echo "run #${{ github.run_number }} | $(date -u '+%Y-%m-%d %H:%M UTC') | trigger: ${{ github.event_name }}"
+            echo
+          } > last-run.log
+          python check_stock.py 2>&1 | tee -a last-run.log
+
+      - name: Keep the last 5 runs in one readable file
+        if: always()
+        run: |
+          # newest run on top, older ones below, cut after the 5th block
+          if [ -f runs-recent.log ]; then
+            cat last-run.log > merged.tmp
+            echo >> merged.tmp
+            cat runs-recent.log >> merged.tmp
+          else
+            cp last-run.log merged.tmp
+          fi
+          awk '/^run #/{n++} n<=5' merged.tmp > runs-recent.log
+          rm -f merged.tmp last-run.log
 
       - name: Save the memory and the restock history
         run: |
@@ -54,7 +73,7 @@ jobs:
           # restock-log.csv only appears after the first real stock event, and
           # git add fails outright on a path that does not exist, so stage
           # each file only if it is actually there.
-          for f in state.json restock-log.csv; do
+          for f in state.json restock-log.csv runs-recent.log; do
             if [ -f "$f" ]; then git add "$f"; fi
           done
           if git diff --cached --quiet; then
