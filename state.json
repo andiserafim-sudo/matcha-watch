@@ -1,21 +1,10 @@
 {
   "__meta__": {
-    "in_stock_since": {
-      "https://www.marukyu-koyamaen.co.jp/english/shop/products/1151020c1": {
-        "1151040C1": 1788317930,
-        "1151100C1": 1788317930,
-        "1151100C6": 1788317930
-      }
-    },
+    "in_stock_since": {},
     "last_check": {
-      "horiishichimeien.com": 1788332541,
-      "marukyu-koyamaen.co.jp": 1788332541,
+      "horiishichimeien.com": 1788335853,
+      "marukyu-koyamaen.co.jp": 1788335853,
       "sazentea.com": 1788329132
     }
-  },
-  "https://www.marukyu-koyamaen.co.jp/english/shop/products/1151020c1": [
-    "1151040C1",
-    "1151100C1",
-    "1151100C6"
-  ]
+  }
 }
