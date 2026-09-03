@@ -1,3 +1,39 @@
+run #370 | Paris 03 Sep 11:55 | Tokyo 03 Sep 18:55 | trigger: schedule | utc 2026-09-03 09:55
+
+[info] Checking: Matcha Isuzu (五十鈴) from Marukyu Koyamaen English shop
+[info]   HTTP 200, 119632 bytes
+[info]   Out of stock.
+[info]   Sold out again after 1h53m.
+[info] Checking: Matcha Wako (和光) from Marukyu Koyamaen English shop
+[info]   HTTP 200, 123603 bytes
+[info]   Out of stock.
+[info]   Sold out again after 1h53m.
+[info] Checking: Matcha Kinrin (金輪) from Marukyu Koyamaen English shop
+[info]   HTTP 200, 120972 bytes
+[info]   Out of stock.
+[info]   Sold out again after 1h53m.
+[info] Skipping (checked 113 min ago, limit 120 min): Matcha Kinrin (金輪) from Marukyu Koyamaen, at Sazen Tea
+[info] Skipping (checked 113 min ago, limit 120 min): Matcha Wako (和光) from Marukyu Koyamaen, at Sazen Tea
+[info] Skipping (checked 113 min ago, limit 120 min): Matcha Isuzu (五十鈴) from Marukyu Koyamaen, at Sazen Tea
+[info] Skipping (checked 113 min ago, limit 120 min): Matcha Ogurayama (小倉山) from Yamamasa Koyamaen, at Sazen Tea
+[info] Skipping (checked 113 min ago, limit 120 min): Matcha Shikibu no Mukashi (式部の昔) from Yamamasa Koyamaen, at Sazen Tea
+[info] Skipping (checked 113 min ago, limit 120 min): Matcha Samidori (さみどり) from Yamamasa Koyamaen, at Sazen Tea
+[info] Checking: Matcha Todou no Mukashi (都昔) from Horii Shichimeien
+[info]   HTTP 200, 6493 bytes
+[price]   30g: ¥4,860 (sold out)
+[info]   Out of stock.
+[info] Checking: Matcha Uji Mukashi (宇治昔) from Horii Shichimeien
+[info]   HTTP 200, 6579 bytes
+[price]   30g: ¥2,484 (sold out)
+[info]   Out of stock.
+[info] state saved (0 items tracked)
+[info] Quiet notice: Matcha Isuzu (五十鈴) sold out at Marukyu Koyamaen
+[info] ntfy push response: 200
+[info] Quiet notice: Matcha Wako (和光) sold out at Marukyu Koyamaen
+[info] ntfy push response: 200
+[info] Quiet notice: Matcha Kinrin (金輪) sold out at Marukyu Koyamaen
+[info] ntfy push response: 200
+
 run #369 | Paris 03 Sep 11:06 | Tokyo 03 Sep 18:06 | trigger: workflow_dispatch | utc 2026-09-03 09:06
 
 [info] Checking: Matcha Isuzu (五十鈴) from Marukyu Koyamaen English shop
